@@ -3,6 +3,25 @@
 
 ---
 
+## v3 update — what changed (read this first)
+
+**No sheet migration is needed.** Deploy the new code over the old; your existing Google Sheet works as-is.
+
+| You asked for | What it does now |
+|---|---|
+| Role check + auto-assign PPE | Choosing a role when adding an employee looks up that role's active rules and **assigns those PPE items automatically** as a draft kit. A live preview shows the kit *before* you click Add. Changing a pending person's role **replaces** their kit with the new role's standard kit. If a role has no PPE defined, you are told and can add items by hand. |
+| Update / delete PPE before approval | Every pending employee card shows their kit: change **quantity**, **Remove** an item, or **add any item from the catalogue** (each shows how much is free in stock). "Reset to role standard" restores the default. Nothing is final until you press **Approve**. |
+| Dashboard reflects real stock | Every PPE item shows on-hand total, reserved (approved but not collected), free-to-allocate, and a bar per size. Alerts list shortfalls, out-of-stock and low sizes. The screen **refreshes itself every 60 s** (and when you return to the tab). Tiles: awaiting approval, awaiting collection, stock alerts, issued in 30 days; plus a 14-day issue chart and employee pipeline. |
+| Employees hold many PPE | An employee can hold any number of items. **Open** an employee to see everything issued to date, and use **Assign more PPE** (tick several at once) at any time after approval — they queue for the store keeper. |
+
+Also fixed while testing: employee IDs can no longer repeat after a deletion; the password-hash table is no longer sent to the browser; sheet values are typed correctly on read (booleans/numbers); a partly out-of-stock collection now saves and refreshes instead of showing an error; store keepers must choose a size deliberately (no accidental first-size default); the two "Safety Boots" items are now labelled by brand (Safety Joggers / Redwings); new roles can be created just by adding a rule for them (Rules tab).
+
+**Try it without Google:** `npm install`, then `npm run demo` → http://localhost:3000 (login `admin` / `demo` or `store` / `demo`). It runs the real API against an in-memory sheet pre-loaded with the stock counts from the Aug 2026 PPE Register. `npm test` runs 17 automated checks of the business rules.
+
+**Rules of thumb for stock alerts:** a size that has never been counted is treated as "not stocked", not "low". A size raises a Low alert only after it has been counted and falls below its alert level.
+
+---
+
 ## 0. What changed from the first build
 
 | Problem you flagged | Fixed by |
@@ -144,3 +163,32 @@ See `PPE_System_PRD.md` §5 for the full field-by-field spec, and `ARAHAS_PPE_Ma
 - **Forgot a password:** re-run the relevant line of `scripts/setup-sheet.js` logic (or ask a developer) to generate a new bcrypt hash and paste it over the old one in the `Users` tab.
 - **Sheets API quota:** far below any Google quota at this scale (a few internal users); no action needed.
 - **Backups:** Google Sheets keeps automatic version history (File → Version history) — a free, built-in audit/backup trail on top of `Stock_Movements`.
+
+---
+
+## 8. Install as an app, and push notifications (new)
+
+### 8.1 What this gives you
+- **Install as an app** — on desktop (Chrome/Edge) and Android, an "Install app" button appears next to the sign-out button; on iPhone/iPad it shows "Add to Home Screen" with instructions (Apple doesn't allow silent installs — the Share → Add to Home Screen step is unavoidable there). Installed, it opens in its own window with the Arahas icon, no browser bar — same idea as installing WhatsApp Web.
+- **Push notifications** — once a user taps **Enable notifications** and allows it, their device gets a native notification for:
+  - **Store Keeper:** an employee is approved and ready to collect; a replacement request is approved and ready to issue.
+  - **Admin (Caleb):** a store keeper raises a replacement request.
+  Tapping the notification opens the app straight to the dashboard.
+
+### 8.2 One-time setup (in addition to §2)
+1. `npm install` (now also installs `web-push`).
+2. `npm run vapid` — prints a public/private keypair. Keep the private key secret.
+3. In **Vercel → Project → Settings → Environment Variables**, add:
+   - `VAPID_PUBLIC_KEY`
+   - `VAPID_PRIVATE_KEY`
+   - `VAPID_SUBJECT` = `mailto:you@yourcompany.com` (any contact address — required by the push spec, shown only to push providers, never to users)
+4. Open `index.html`, find `PASTE_YOUR_VAPID_PUBLIC_KEY_HERE` near the top of the script, and paste the **public** key there (it's safe to be visible in the frontend — it isn't a secret, it just tells the browser which server is allowed to push to it).
+5. Redeploy. The app auto-creates a `Push_Subscriptions` tab in the Sheet the first time someone enables notifications — no manual sheet setup needed.
+
+### 8.3 What if I skip this?
+Nothing breaks. Without VAPID keys, the "Enable notifications" button silently doesn't appear, and the server-side push calls are automatically skipped (see `lib/push.js`) — every existing feature works exactly as before.
+
+### 8.4 Notes
+- Notifications are **per device/browser**, not per account — a store keeper who signs in on their phone and their desktop needs to enable it on both if they want both to ping.
+- iOS requires the app to be **installed to the Home Screen first** (§8.1) before it can ask for notification permission — this is an Apple restriction, not something this app can skip.
+- If a device stops responding to pushes (uninstalled, permissions revoked), the server automatically forgets it the next time a push to it fails — no manual cleanup needed.

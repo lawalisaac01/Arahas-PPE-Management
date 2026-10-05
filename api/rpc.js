@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const { readSnapshot, writeTables } = require('../lib/sheets');
 const { issueToken, verify, checkPassword } = require('../lib/auth');
+const { notifyRole } = require('../lib/push');
 
 const uid = (prefix) => `${prefix}-${crypto.randomBytes(4).toString('hex')}`;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -69,8 +70,8 @@ function refreshStatus(snap, employeeId) {
   emp.status = pending === 0 ? ST.DONE : collected > 0 ? ST.PARTIAL : ST.AWAITING;
 }
 
-// The Users table (password hashes) never leaves the server.
-const publicSnapshot = ({ Users, ...rest }) => rest;
+// The Users table (password hashes) and push subscriptions never leave the server.
+const publicSnapshot = ({ Users, Push_Subscriptions, ...rest }) => rest;
 
 // ---------- RPCs: each returns { result } and mutates `snap` in place ----------
 async function signIn(args) {
@@ -166,6 +167,11 @@ async function approveEmployee(session, args, snap) {
     d.issuance_id = approvalId; d.related_approval_id = approvalId;
   });
   await writeTables({ Employees: snap.Employees, Issuance_Log: snap.Issuance_Log });
+  await pushAndPersist(snap, 'Store Keeper', {
+    title: 'PPE ready to issue',
+    body: `${emp.name} (${emp.employee_id}) was approved for ${drafts.length} item${drafts.length === 1 ? '' : 's'} — ready for collection.`,
+    tag: 'ppe-collection', url: '/'
+  });
   return { result: { ok: true, employee_id: emp.employee_id, items: drafts.length } };
 }
 
@@ -273,6 +279,12 @@ async function requestReplacement(session, args, snap) {
     requested_by: session.username, status: 'Pending', approved_by: '', approved_date: ''
   });
   await writeTables({ Replacement_Requests: snap.Replacement_Requests });
+  const itemName = (snap.Item_Catalog.find(i => i.item_id === itemId) || {}).item_category || itemId;
+  await pushAndPersist(snap, 'Admin', {
+    title: 'Replacement request',
+    body: `${itemName} for ${employeeId} — ${reason.trim()}`,
+    tag: 'ppe-replacement-request', url: '/'
+  });
   return { result: { ok: true } };
 }
 
@@ -295,6 +307,14 @@ async function decideReplacement(session, args, snap) {
     refreshStatus(snap, req.employee_id);
   }
   await writeTables({ Replacement_Requests: snap.Replacement_Requests, Issuance_Log: snap.Issuance_Log, Employees: snap.Employees });
+  if (approve) {
+    const itemName = (snap.Item_Catalog.find(i => i.item_id === req.item_id) || {}).item_category || req.item_id;
+    await pushAndPersist(snap, 'Store Keeper', {
+      title: 'Replacement approved',
+      body: `${itemName} approved for ${req.employee_id} — ready to issue.`,
+      tag: 'ppe-collection', url: '/'
+    });
+  }
   return { result: { ok: true } };
 }
 
@@ -338,10 +358,42 @@ async function undoCollection(session, args, snap) {
   return { result: { ok: true } };
 }
 
+// Push a notification to everyone with `role`, and if any dead subscriptions
+// got cleaned up in the process, save that. Never throws — a notification
+// problem must never fail the approval/request/issuance it's attached to.
+async function pushAndPersist(snap, role, payload) {
+  try {
+    const changed = await notifyRole(snap, role, payload);
+    if (changed) await writeTables({ Push_Subscriptions: snap.Push_Subscriptions });
+  } catch (e) { /* best-effort — swallow */ }
+}
+
+async function savePushSubscription(session, args, snap) {
+  const [subJson] = args;
+  let sub;
+  try { sub = JSON.parse(subJson); } catch { throw new Error('Bad subscription payload.'); }
+  if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) throw new Error('Incomplete push subscription.');
+  snap.Push_Subscriptions = (snap.Push_Subscriptions || []).filter(s => s.endpoint !== sub.endpoint);
+  snap.Push_Subscriptions.push({
+    sub_id: uid('push'), username: session.username, role: session.role,
+    endpoint: sub.endpoint, p256dh: sub.keys.p256dh, auth: sub.keys.auth, created_at: now()
+  });
+  await writeTables({ Push_Subscriptions: snap.Push_Subscriptions });
+  return { result: { ok: true } };
+}
+
+async function deletePushSubscription(session, args, snap) {
+  const [endpoint] = args;
+  snap.Push_Subscriptions = (snap.Push_Subscriptions || []).filter(s => s.endpoint !== endpoint);
+  await writeTables({ Push_Subscriptions: snap.Push_Subscriptions });
+  return { result: { ok: true } };
+}
+
 const HANDLERS = {
   addEmployee, editEmployee, resetDraft, setDraftItem, removeDraftItem, approveEmployee, addPpeToEmployee,
   setRule, deleteRule, adjustStock, issueBatch, requestReplacement, decideReplacement,
-  deleteEmployee, removeIssuanceLine, undoCollection
+  deleteEmployee, removeIssuanceLine, undoCollection,
+  savePushSubscription, deletePushSubscription
 };
 
 async function handle(body) {
