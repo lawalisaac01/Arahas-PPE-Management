@@ -100,7 +100,7 @@ This creates every tab, writes the full 13-item PPE catalogue, seeds sensible de
 5. (Optional) Add a custom domain under Project → Settings → Domains.
 
 ### 2.6 Load real stock counts
-Open the live Google Sheet → `Inventory` tab → fill in `qty_on_hand` for each item/size from your current stock count (use `Investory - PPEs.xlsx` / `Combined PPE datasheet.xlsx` as the source). This is the only manual data entry needed at go-live — everything after this point is entered through the app so it stays audited.
+Sign in → **Stock count** → upload your current stock register (`Inventory - PPEs.xlsx`) and apply it — see §9. (You can still type `qty_on_hand` straight into the sheet's `Inventory` tab if you prefer.) This is the only manual data entry needed at go-live — everything after this point is entered through the app so it stays audited.
 
 ---
 
@@ -192,3 +192,39 @@ Nothing breaks. Without VAPID keys, the "Enable notifications" button silently d
 - Notifications are **per device/browser**, not per account — a store keeper who signs in on their phone and their desktop needs to enable it on both if they want both to ping.
 - iOS requires the app to be **installed to the Home Screen first** (§8.1) before it can ask for notification permission — this is an Apple restriction, not something this app can skip.
 - If a device stops responding to pushes (uninstalled, permissions revoked), the server automatically forgets it the next time a push to it fails — no manual cleanup needed.
+
+---
+
+## 9. Stock count — upload a stock sheet or send a counting link (new)
+
+Both Admins and Store Keepers have a **Stock count** tab. There are two ways to bring counts in, and both end at the same **review screen**: you see every line as *now → counted → after* before anything changes. Each line you apply is recorded in Stock movements with who did it, where the figures came from, and any change in defective stock.
+
+### 9.1 Upload a stock sheet
+1. **Stock count → Choose an Excel file** (`.xlsx` or `.csv`, up to 5 MB). Old `.xls` files must be re-saved as `.xlsx` first.
+2. The app finds the header row and matches every row to a catalogue item and size. It understands the **PPE stock register** as it is kept today: merged item cells, section headings, TOTAL rows, `50.0`-style sizes, "Large Size", and "Uvex (Clear and Dark)" with `51/82` (split into Clear 51 / Dark 82 and marked *Check*). It also reads the template (below) and any simple Item / Size / Quantity list.
+3. On the review screen:
+   - **OK**: matched with confidence.
+   - **Check** (amber): matched, but please glance at it, e.g. a split figure, an item picked using its size, or a figure much higher than usual (likely a typo). Press **Looks right** to clear it.
+   - **Fix** (red): the app wasn't sure. Pick the item or size from the drop-downs, correct the figure, or untick the line. **Apply** stays disabled until nothing is red.
+   - If a workbook has several sheets, choose the right one with **Sheet**.
+4. Choose what the figures mean:
+   - **Stock count**: on-hand is *set* to the counted figure. A blank cell means *not counted* and leaves that size as it is. Tick **Treat empty cells as 0** only if blanks really mean none in stock.
+   - **Delivery**: the figures are *added* to stock.
+5. Press **Apply**.
+
+**Templates:** *Blank template* downloads every item and size with empty Available / Defective columns. *Current stock as a sheet* downloads the same list filled with today's figures, so you can correct only what differs and upload it back.
+
+### 9.2 Counting link (replaces the separate PPE Inventory app)
+1. **Stock count → Counting link**: optionally name it (e.g. "Main store · October"), choose *Stock count* or *Delivery received*, choose how long it stays valid, then **Create link**. The link is copied for you. You can also share it with **WhatsApp**.
+2. The person counting opens it on any phone, with no account needed. They see every item and size with **Available** and **Defective** boxes, in the same style as the old inventory app. Counts are saved on their phone as they type, so a refresh or lost signal doesn't lose work. They enter their name and press **Submit**.
+3. It is a **blind count**: the page never shows current stock figures, so counts aren't biased. The link works **once** and stops working when it expires or is cancelled.
+4. You get a notification if notifications are on (§8), and the tab shows a badge. Press **Review** on the link, check the lines, and **Apply**. Use **Discard** to reject a submitted count.
+
+### 9.3 Defective stock
+Stock rows now also hold a **defective** figure, shown on the dashboard cards and in the Inventory table. Defective items are never counted as available or issued; on-hand stays the figure that can be issued. Counts and deliveries set or add defective figures exactly like available ones.
+
+### 9.4 Sheet changes (automatic)
+- `Inventory` gains a 6th column, `qty_defective`. Its heading is written automatically the first time stock is saved, and existing rows count as 0 defective.
+- A new tab, `Stock_Counts`, holds counting links and submitted counts. It is created automatically the first time a link is made.
+
+No manual sheet edits and no new environment variables are needed. The old Apps Script inventory sheet is no longer used. Keep it as an archive if you like.

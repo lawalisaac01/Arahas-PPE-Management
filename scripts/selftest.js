@@ -185,5 +185,111 @@ let n = 0; const test = async (name, fn) => { await fn(); n++; console.log('  �
     assert.strictEqual(db.Issuance_Log.find(x => x.line_id === l.line_id).item_status, 'Pending');
   });
 
+  // ---------- stock count: upload + counting links ----------
+  const pub = (fn, ...a) => handle({ fn, args: a });
+  const moves = () => db.Stock_Movements.length;
+
+  await test('stock count SETS on-hand and defective; blank figures leave a size as it is', async () => {
+    stock('coverall_single', 'L').qty_on_hand = 7; stock('coverall_single', 'M').qty_on_hand = 3;
+    const before = moves();
+    const r = await call(S, 'applyStockCount', 'count', [
+      { item_id: 'coverall_single', size: 'L', qty: 45, defective: 2 },
+      { item_id: 'coverall_single', size: 'M', qty: null, defective: 1 },
+      { item_id: 'coverall_single', size: 'XL', qty: 0, defective: null }
+    ], 'register.xlsx');
+    assert.strictEqual(stock('coverall_single', 'L').qty_on_hand, 45); assert.strictEqual(stock('coverall_single', 'L').qty_defective, 2);
+    assert.strictEqual(stock('coverall_single', 'M').qty_on_hand, 3); assert.strictEqual(stock('coverall_single', 'M').qty_defective, 1);
+    assert.ok(stock('coverall_single', 'XL').last_updated, 'a counted size with no change is still stamped as counted');
+    assert.strictEqual(r.result.changed, 2); assert.strictEqual(moves(), before + 2);
+    const mv = db.Stock_Movements.find(m => m.item_id === 'coverall_single' && m.size === 'L' && m.delta === 38);
+    assert.match(mv.reason, /Stock count — register\.xlsx · defective 0→2/); assert.strictEqual(mv.actor, 'store');
+  });
+
+  await test('delivery ADDS to on-hand and defective', async () => {
+    await call(A, 'applyStockCount', 'delivery', [{ item_id: 'coverall_single', size: 'L', qty: 10, defective: 1 }], 'GRN 42');
+    assert.strictEqual(stock('coverall_single', 'L').qty_on_hand, 55); assert.strictEqual(stock('coverall_single', 'L').qty_defective, 3);
+  });
+
+  await test('bad count lines are refused and nothing is written', async () => {
+    const snapBefore = JSON.stringify(db.Inventory);
+    await fails(call(A, 'applyStockCount', 'count', [{ item_id: 'coverall_single', size: 'XS', qty: 1 }], 'x'), /not set up/);
+    await fails(call(A, 'applyStockCount', 'count', [{ item_id: 'coverall_single', size: 'L', qty: 1 }, { item_id: 'coverall_single', size: 'L', qty: 2 }], 'x'), /more than once/);
+    await fails(call(A, 'applyStockCount', 'count', [{ item_id: 'coverall_single', size: 'L', qty: -1 }], 'x'), /whole number/);
+    await fails(call(A, 'applyStockCount', 'count', [{ item_id: 'coverall_single', size: 'L', qty: 2.5 }], 'x'), /whole number/);
+    await fails(call(A, 'applyStockCount', 'count', [{ item_id: 'nope', size: 'L', qty: 1 }], 'x'), /catalogue/);
+    await fails(call(A, 'applyStockCount', 'replace', [{ item_id: 'coverall_single', size: 'L', qty: 1 }], 'x'), /Stock count/);
+    assert.strictEqual(JSON.stringify(db.Inventory), snapBefore);
+  });
+
+  await test('counting link: open without sign-in, blind (no stock figures), submit once, then apply', async () => {
+    const { result: link } = await call(S, 'createCountLink', 'Main store', 24, 'count');
+    const open = await pub('countLinkOpen', link.token);
+    assert.ok(!('snapshot' in open)); assert.ok(!/qty_on_hand|password|SECRET/.test(JSON.stringify(open)));
+    assert.ok(open.result.items.find(i => i.item_id === 'goggles').sizes.includes('Clear'));
+    await fails(pub('countLinkSubmit', link.token, 'X', [{ item_id: 'goggles', size: 'Clear', qty: 5 }]), /your name/);
+    await pub('countLinkSubmit', link.token, 'Musa Bello', [{ item_id: 'goggles', size: 'Clear', qty: 51 }, { item_id: 'goggles', size: 'Dark', qty: 82, defective: 0 }]);
+    await fails(pub('countLinkOpen', link.token), /already been submitted/);
+    await fails(pub('countLinkSubmit', link.token, 'Musa Bello', [{ item_id: 'goggles', size: 'Clear', qty: 1 }]), /already been submitted/);
+    const row = db.Stock_Counts.find(c => c.count_id === link.count_id);
+    assert.strictEqual(row.status, 'Submitted'); assert.deepStrictEqual(JSON.parse(row.lines_json)[0], ['goggles', 'Clear', 51, null]);
+    await call(S, 'applyStockCount', 'count', [{ item_id: 'goggles', size: 'Clear', qty: 51 }], 'ignored', link.count_id);
+    assert.strictEqual(stock('goggles', 'Clear').qty_on_hand, 51); assert.strictEqual(row.status === 'Submitted', true, 'local copy unchanged');
+    const saved = db.Stock_Counts.find(c => c.count_id === link.count_id);
+    assert.strictEqual(saved.status, 'Applied'); assert.strictEqual(saved.applied_by, 'store');
+    assert.match(db.Stock_Movements.at(-1).reason, /counting link "Main store" by Musa Bello/);
+    await fails(call(A, 'applyStockCount', 'count', [{ item_id: 'goggles', size: 'Clear', qty: 1 }], 'x', link.count_id), /already been applied/);
+  });
+
+  await test('counting link: wrong, cancelled and expired links are refused', async () => {
+    await fails(pub('countLinkOpen', 'not-a-real-token'), /not valid/);
+    await fails(pub('countLinkOpen', ''), /not valid/);
+    const { result: a } = await call(A, 'createCountLink', '', 8);
+    await call(A, 'cancelCountLink', a.count_id);
+    await fails(pub('countLinkOpen', a.token), /cancelled/);
+    const { result: b } = await call(A, 'createCountLink', '', 8);
+    db.Stock_Counts.find(c => c.count_id === b.count_id).expires_at = new Date(Date.now() - 1000).toISOString();
+    await fails(pub('countLinkSubmit', b.token, 'Ada', [{ item_id: 'goggles', size: 'Clear', qty: 1 }]), /expired/);
+    await fails(call(A, 'createCountLink', '', 0), /1 hour to 14 days/);
+  });
+
+  await test('reader: stock register layout (merged items, headings, TOTAL rows, "51/82") is matched without guessing', async () => {
+    const SI = require('../stock-import');
+    const cat = CATALOGUE.map(c => ({ item_id: c.id, category: c.category, description: c.description, uom: c.uom, sizes: c.sizes }));
+    const boot = (brand) => `Safety Boot\nType: Low/Ankle Shoes\nBrand : ${brand}\nStandard: BS EN ISO 20345, ASTM F2413-18 & ASTM F3445-21`;
+    const rows = [[null, 'ARAHAS · PPE STOCK REGISTER'], [], [null, 'ITEM DESCRIPTION', 'SIZE', 'AVAILABLE STOCK', 'DEFECTIVE STOCK'],
+      [null, 'SAFETY BOOTS'], [null, boot('Safety Joggers'), 50, 5, null], [null, null, 49, 0, null], [null, 'TOTAL', null, 5, 0],
+      [null, boot('Redwings'), 50, null, null], [null, null, 43, 6, 1], [null, 'TOTAL', null, 6, 1],
+      [null, 'COVERALL'], [null, 'Coverall (2 Piece)\nType: Flame-Resistant Workwear\nBrand : Red Wing', 'XXL', 1, 1],
+      [null, 'Safety googles\nBrand: Astrospec 3000 · Black Frame', 'Uvex (Clear and Dark)', '51/82', 0],
+      [null, 'Ear plugs (3M UltraFit™)', '3M Ear plugs- corded', 250, null], [null, 'Raincoat (Zutech Safety)', 'XXXL', 1, null],
+      [null, 'Face shield', null, 4, null], [null, 'UMBRELLA'], [null, 'Umbrella', null, null, null]];
+    const r = SI.parse(rows, cat);
+    const got = r.lines.map(l => [l.item_id, l.size, l.qty, l.defective, l.blank, l.problems.length]);
+    assert.deepStrictEqual(got, [
+      ['safety_joggers', '50', 5, null, false, 0], ['safety_joggers', '49', 0, null, false, 0],
+      ['redwings', '50', null, null, true, 0], ['redwings', '43', 6, 1, false, 0],
+      ['coverall_2piece', 'XXL', 1, 1, false, 0],
+      ['goggles', 'Clear', 51, 0, false, 0], ['goggles', 'Dark', 82, 0, false, 0],
+      ['ear_plugs', 'Corded', 250, null, false, 0], ['raincoat_zutech', 'XXXL', 1, null, false, 0],
+      [null, null, 4, null, false, 1]
+    ]);
+    assert.match(r.lines[5].notes[0], /Split "51\/82"/);
+    assert.strictEqual(r.lines[0].row, 5, 'row numbers match the sheet');
+  });
+
+  await test('reader: plain lists, item codes, 2XL/Large sizes, and "unsure" flags', async () => {
+    const SI = require('../stock-import');
+    const cat = CATALOGUE.map(c => ({ item_id: c.id, category: c.category, description: c.description, uom: c.uom, sizes: c.sizes }));
+    const r = SI.parse(SI.parseCSV('Item code,Item,Size,Unit,Available,Defective\r\nhard_hats,Hard Hats,One Size,Pieces,20,\r\n,Coverall single,2XL,,10,\r\n,Red wings,43,,5,\r\n,Gloves,Large,,12,\r\n,Cotton gloves,,,7,\r\n,Ear plug,,,2.5,\r\n'), cat);
+    const got = r.lines.map(l => [l.item_id, l.size, l.qty, l.problems.join('|')]);
+    assert.deepStrictEqual(got, [
+      ['hard_hats', 'One Size', 20, ''], ['coverall_single', 'XXL', 10, ''], ['redwings', '43', 5, ''],
+      ['impact_gloves', 'Large', 12, 'Item uncertain — please confirm'], ['cotton_gloves', 'Large', 7, ''],
+      ['ear_plugs', 'Corded', null, 'Can\'t use "2.5" — whole numbers only']
+    ]);
+    assert.match(r.lines[2].notes[0], /Matched by size 43/);
+    assert.ok(SI.parse([['a', 'b'], [1, 2]], cat).error);
+  });
+
   console.log(`\nAll ${n} checks passed.`);
 })().catch(e => { console.error('\nFAILED:', e.message); process.exit(1); });

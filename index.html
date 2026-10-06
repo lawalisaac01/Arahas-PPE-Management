@@ -33,7 +33,7 @@ main{max-width:1240px;margin:auto;padding:1rem 1rem 3rem}
 .btn{cursor:pointer;border:1px solid transparent;border-radius:11px;padding:.6rem 1rem;background:var(--brand);color:#fff;font-weight:650;font-size:.9rem;transition:filter .15s,transform .05s}
 .btn:hover{filter:brightness(1.1)}.btn:active{transform:translateY(1px)}.btn:disabled{opacity:.5;cursor:wait}
 .btn.ghost{background:transparent;border-color:var(--line);color:var(--ink)}.btn.soft{background:var(--ok-bg);color:var(--ok)}.btn.danger{background:var(--bad)}.btn.danger.ghost{background:transparent;color:var(--bad);border-color:var(--bad-bg)}
-.btn.sm{padding:.34rem .65rem;font-size:.8rem;border-radius:9px}header .btn.ghost{border-color:#ffffff40;color:#fff}
+.btn.sm{padding:.34rem .65rem;font-size:.8rem;border-radius:9px}a.btn{display:inline-block;text-decoration:none}header .btn.ghost{border-color:#ffffff40;color:#fff}
 input,select,textarea{width:100%;padding:.6rem .7rem;border:1px solid var(--line);border-radius:10px;background:var(--surface);min-height:40px}
 input[type=checkbox]{width:1.15rem;height:1.15rem;min-height:0;accent-color:var(--brand)}
 label{display:grid;gap:.3rem;font-weight:600;font-size:.82rem;color:var(--muted)}label.check{display:flex;align-items:center;gap:.6rem;color:var(--ink);font-weight:500;font-size:.9rem}
@@ -77,6 +77,14 @@ tr:last-child td{border-bottom:0}
 .pick{display:grid;grid-template-columns:auto 1fr auto auto;gap:.6rem;align-items:center;padding:.45rem .3rem;border-bottom:1px solid var(--line)}.pick:last-child{border:0}
 .actions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--line)}
 .line{display:grid;grid-template-columns:minmax(200px,1fr) minmax(170px,260px);gap:1rem;align-items:center;padding:.7rem .2rem;border-top:1px solid var(--line)}
+/* stock count */
+.drop{display:block;border:2px dashed var(--line);border-radius:14px;padding:1.6rem 1rem;text-align:center;cursor:pointer;color:var(--muted);font-weight:600;transition:background .15s,border-color .15s}
+.drop:hover,.drop.over{border-color:var(--brand-2);background:var(--ok-bg);color:var(--ok)}.drop input{display:none}.drop b{display:block;color:var(--ink);font-size:1rem;margin-bottom:.2rem}
+.sc-table{min-width:980px}.sc-table td{padding:.45rem .45rem;vertical-align:top}.sc-table select{min-width:150px;min-height:36px;padding:.35rem .5rem}.sc-table .qty{width:78px;min-height:36px;padding:.35rem}
+.sc-table tr.bad td:first-child{box-shadow:inset 4px 0 var(--bad)}.sc-table tr.warn td:first-child{box-shadow:inset 4px 0 var(--warn)}.sc-table tr.off{opacity:.55}
+.sc-src{font-size:.74rem;color:var(--muted);max-width:210px;white-space:pre-line;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
+.sc-msg{font-size:.76rem;margin-top:.25rem;max-width:230px}.sc-msg.bad{color:var(--bad)}.sc-msg.warn{color:var(--warn)}
+.linkbox{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;background:var(--ok-bg);border-radius:12px;padding:.7rem .8rem;margin:.8rem 0}.linkbox code{flex:1;min-width:200px;word-break:break-all;font-size:.8rem}
 .rolecard h2{display:flex;justify-content:space-between;align-items:center}
 /* dialog, toast, login */
 dialog{border:1px solid var(--line);border-radius:18px;padding:1.3rem;width:min(96vw,860px);max-height:92vh;background:var(--surface);color:var(--ink);box-shadow:0 22px 70px #0a2d2066}dialog::backdrop{background:#0a2d20b0}
@@ -99,10 +107,11 @@ footer{text-align:center;color:var(--muted);padding:1.5rem 1rem;font-size:.8rem}
 <dialog id="dlg"></dialog>
 <div id="toast" role="status" aria-live="polite"></div>
 <footer>Powered by GETs 2025 Set</footer>
+<script src="/stock-import.js"></script>
 <script>
 "use strict";
 /* ───────── state ───────── */
-const S={auth:null,data:null,tab:'Dashboard',busy:false,updated:0,dashFilter:'all',dashQ:'',dlg:null};
+const S={auth:null,data:null,tab:'Dashboard',busy:false,updated:0,dashFilter:'all',dashQ:'',dlg:null,sc:{review:null,newLink:null}};
 
 /* ───────── PWA: installable + push notifications ───────── */
 // Paste the PUBLIC key printed by `npm run vapid` (see MANUAL.md §2.5). The
@@ -195,7 +204,7 @@ function holdings(eid){ // everything collected so far, per PPE item — an empl
 function stockMap(){
   const d=S.data,m=new Map();
   d.Item_Catalog.filter(i=>i.active).forEach(i=>m.set(i.item_id,{item:i,rows:[],total:0,committed:0}));
-  d.Inventory.forEach(r=>{const s=m.get(r.item_id);if(s){s.rows.push(r);s.total+=r.qty_on_hand}});
+  d.Inventory.forEach(r=>{const s=m.get(r.item_id);if(s){s.rows.push(r);s.total+=r.qty_on_hand;s.defective=(s.defective||0)+(r.qty_defective||0)}});
   d.Issuance_Log.forEach(l=>{if(l.item_status==='Pending'){const s=m.get(l.item_id);if(s)s.committed+=l.qty}});
   m.forEach(s=>{
     s.rows.sort(sizeSort);s.available=s.total-s.committed;
@@ -257,11 +266,11 @@ function loginView(){
     try{S.auth=await call('signIn',$('#u').value,$('#p').value);setData(lastPayload.snapshot);S.tab='Dashboard';render()}
     catch(err){toast(err.message,true)}finally{b.disabled=false}};
 }
-async function signOut(silent){try{if(!silent)await call('signOut',S.auth.token)}catch{}S.auth=null;S.data=null;S.dlg=null;$('#dlg').open&&$('#dlg').close();loginView()}
+async function signOut(silent){try{if(!silent)await call('signOut',S.auth.token)}catch{}S.auth=null;S.data=null;S.dlg=null;S.sc={review:null,newLink:null};$('#dlg').open&&$('#dlg').close();loginView()}
 
 /* ───────── shell ───────── */
-const TABS_ADMIN=['Dashboard','Employees','Rules','Inventory','Replacements','Reports'],TABS_STORE=['Dashboard','Collections','Employees','Replacements','My activity'];
-const VIEWS={Dashboard:viewDashboard,Employees:viewEmployees,Rules:viewRules,Inventory:viewInventory,Collections:viewCollections,Replacements:viewReplacements,Reports:viewReports,'My activity':viewActivity};
+const TABS_ADMIN=['Dashboard','Employees','Rules','Inventory','Stock count','Replacements','Reports'],TABS_STORE=['Dashboard','Collections','Employees','Stock count','Replacements','My activity'];
+const VIEWS={Dashboard:viewDashboard,Employees:viewEmployees,Rules:viewRules,Inventory:viewInventory,'Stock count':viewStockCount,Collections:viewCollections,Replacements:viewReplacements,Reports:viewReports,'My activity':viewActivity};
 function render(){
   const tabs=isAdmin()?TABS_ADMIN:TABS_STORE;if(!tabs.includes(S.tab))S.tab='Dashboard';
   $('#identity').innerHTML=`${headerExtras()}<span class="pill">${esc(S.auth.username)} · ${esc(S.auth.role)}</span><button class="btn ghost sm" data-act="signout">Sign out</button>`;
@@ -273,6 +282,7 @@ function badgeFor(t){ // small counters on tabs so nothing waiting is missed
   if(t==='Employees'&&isAdmin())n=d.Employees.filter(e=>e.status===ST.PENDING).length;
   if(t==='Collections')n=new Set(d.Issuance_Log.filter(l=>l.item_status==='Pending').map(l=>l.employee_id)).size;
   if(t==='Replacements'&&isAdmin())n=d.Replacement_Requests.filter(r=>r.status==='Pending').length;
+  if(t==='Stock count')n=(d.Stock_Counts||[]).filter(c=>c.status==='Submitted').length;
   return n?` <span class="badge warn" style="padding:.05rem .45rem">${n}</span>`:'';
 }
 const liveBar=()=>`<span class="live" id="live"><i></i><span id="liveTxt">Live</span></span> <button class="btn ghost sm no-print" data-act="refresh">↻ Refresh</button>`;
@@ -310,7 +320,7 @@ function viewDashboard(){
     <button class="tile ${short+out?'bad':low?'warn':''}" data-act="filter" data-f="attn"><div class="k">Stock alerts</div><div class="v">${short+out+low}</div><div class="s">${out} out · ${short} short · ${low} low</div></button>
     <div class="tile"><div class="k">Issued · last 30 days</div><div class="v">${issued30}</div><div class="s">PPE lines handed out</div></div>
   </div>
-  ${totalUnits===0?`<div class="notice warn" style="margin-top:.8rem"><b>No stock has been recorded yet.</b> Every count is zero until you add opening stock — ${isAdmin()?'go to <b>Inventory</b> and enter your verified counts.':'ask the admin to enter opening counts under Inventory.'}</div>`:''}
+  ${totalUnits===0?`<div class="notice warn" style="margin-top:.8rem"><b>No stock has been recorded yet.</b> Every count is zero until you add opening stock — go to <b>Stock count</b> and upload your stock register or send a counting link.</div>`:''}
   <section class="card"><div class="card-head"><h2>Needs attention</h2><span class="muted small">Reserved = approved but not yet collected</span></div>
     ${attention.length?`<ul class="alerts">${attention.slice(0,6).map(i=>`<li><span class="badge ${i.state==='low'?'warn':'bad'}">${i.state==='short'?'Short':i.state==='out'?'Out':'Low'}</span><span>${alertText(i)}</span></li>`).join('')}${attention.length>6?`<li class="muted">+ ${attention.length-6} more — see the stock cards below</li>`:''}</ul>`:'<div class="empty">Everything is stocked above alert levels and covers pending collections.</div>'}
   </section>
@@ -332,7 +342,7 @@ function stockCard(i){
   const badge={ok:'<span class="badge">Healthy</span>',low:`<span class="badge warn">${i.lowRows.length} size${i.lowRows.length>1?'s':''} low</span>`,out:'<span class="badge bad">Out of stock</span>',short:`<span class="badge bad">Short by ${num(-i.available)}</span>`}[i.state];
   return `<article class="stock ${i.state}"><div class="sh"><div><div class="name">${esc(label(i.item.item_id))}</div><div class="desc">${esc(i.item.item_description.slice(0,70))}${i.item.item_description.length>70?'…':''}</div></div>${badge}</div>
   <div class="big" style="margin:.5rem 0 .1rem">${num(i.total)} <small>${esc(i.item.uom)} on hand</small></div>
-  <div class="meter"><span>Reserved <b>${num(i.committed)}</b></span><span>Free to allocate <b style="color:${i.available<0?'var(--bad)':'inherit'}">${num(i.available)}</b></span></div>
+  <div class="meter"><span>Reserved <b>${num(i.committed)}</b></span><span>Free to allocate <b style="color:${i.available<0?'var(--bad)':'inherit'}">${num(i.available)}</b></span>${i.defective?`<span>Defective <b style="color:var(--warn)">${num(i.defective)}</b></span>`:''}</div>
   ${i.rows.length?`<div class="bars">${bars}</div>`:'<div class="muted small">No sizes set up for this item.</div>'}</article>`;
 }
 
@@ -419,7 +429,7 @@ function viewRules(){
 /* ───────── INVENTORY ───────── */
 function viewInventory(){
   const rows=S.data.Inventory,items=X.items;
-  $('#view').innerHTML=`<div class="page-head"><div><h1>Inventory</h1><p class="muted">Record deliveries, counts and write-offs as signed adjustments. Every change is logged with a reason.</p></div>${liveBar()}</div>
+  $('#view').innerHTML=`<div class="page-head"><div><h1>Inventory</h1><p class="muted">Record deliveries, counts and write-offs as signed adjustments. Every change is logged with a reason. To count many items at once, use <a href="#" data-act="goto" data-tab="Stock count">Stock count</a>.</p></div>${liveBar()}</div>
   <section class="card" id="adj"><h2>Adjust stock</h2><form class="row" id="stockForm"><label>PPE item<select id="si">${items.map(i=>`<option value="${esc(i.item_id)}">${esc(label(i.item_id))}</option>`).join('')}</select></label>
   <label style="max-width:170px">Size<select id="ss"></select></label><label style="max-width:130px">Change (+ / −)<input id="sd" type="number" step="1" value="0" required></label><label style="max-width:130px">Alert below<input id="st" type="number" min="0" step="1" value="10" required></label>
   <label>Reason<input id="sr" required minlength="4" placeholder="Delivery / stock count / damaged"></label><button class="btn">Save adjustment</button></form><p class="muted small" id="sNow"></p></section>
@@ -429,8 +439,155 @@ function viewInventory(){
   const syncNow=()=>{const r=rows.find(x=>x.item_id===$('#si').value&&x.size===$('#ss').value);$('#st').value=r?.low_stock_threshold??10;$('#sNow').textContent=r?`Currently ${num(r.qty_on_hand)} on hand${r.last_updated?' · last updated '+String(r.last_updated).slice(0,16).replace('T',' '):' · never counted'}.`:''};
   $('#si').onchange=()=>fillSizes();$('#ss').onchange=syncNow;fillSizes();
   $('#stockForm').onsubmit=e=>{e.preventDefault();const d=Number($('#sd').value);if(!d&&!confirm('Change is 0 — this only updates the alert level. Continue?'))return;if(!$('#ss').value){toast('This item has no sizes.',true);return}run('adjustStock',$('#si').value,$('#ss').value,d,$('#sr').value,Number($('#st').value))};
-  const show=()=>{const q=$('#stockFind').value.toLowerCase();$('#stockTable').innerHTML=table(['PPE','Size','On hand','Alert below','Status','Updated',''],rows.filter(r=>`${label(r.item_id)} ${r.size}`.toLowerCase().includes(q)).map(r=>[esc(label(r.item_id)),esc(r.size),`<b>${num(r.qty_on_hand)}</b>`,r.low_stock_threshold,r.qty_on_hand===0?'<span class="badge bad">Out</span>':r.qty_on_hand<r.low_stock_threshold?'<span class="badge warn">Low</span>':'<span class="badge">OK</span>',esc(String(r.last_updated||'—').slice(0,10)),`<button class="btn ghost sm" data-act="adjust" data-item="${esc(r.item_id)}" data-size="${esc(r.size)}">Adjust</button>`]))};
+  const show=()=>{const q=$('#stockFind').value.toLowerCase();$('#stockTable').innerHTML=table(['PPE','Size','On hand','Defective','Alert below','Status','Updated',''],rows.filter(r=>`${label(r.item_id)} ${r.size}`.toLowerCase().includes(q)).map(r=>[esc(label(r.item_id)),esc(r.size),`<b>${num(r.qty_on_hand)}</b>`,r.qty_defective?`<span style="color:var(--warn)">${num(r.qty_defective)}</span>`:'<span class="muted">0</span>',r.low_stock_threshold,r.qty_on_hand===0?'<span class="badge bad">Out</span>':r.qty_on_hand<r.low_stock_threshold?'<span class="badge warn">Low</span>':'<span class="badge">OK</span>',esc(String(r.last_updated||'—').slice(0,10)),`<button class="btn ghost sm" data-act="adjust" data-item="${esc(r.item_id)}" data-size="${esc(r.size)}">Adjust</button>`]))};
   $('#stockFind').oninput=show;show();
+}
+
+/* ───────── STOCK COUNT: Excel upload + one-time counting links (admin & store keeper) ─────────
+   Every count is previewed line by line before it touches stock. "Stock count" sets on-hand to the
+   counted figure; "Delivery" adds it. A blank figure means "not counted" and leaves that size as it is. */
+const LINK_HOURS=[[8,'8 hours'],[24,'1 day'],[48,'2 days'],[168,'7 days']];
+const MODE_TXT={count:'Stock count',delivery:'Delivery'};
+const sizesOf=id=>S.data.Inventory.filter(r=>r.item_id===id).sort(sizeSort).map(r=>r.size);
+const invRow=(id,size)=>S.data.Inventory.find(r=>r.item_id===id&&r.size===size);
+const countUrl=t=>`${location.origin}/count?c=${encodeURIComponent(t)}`;
+const scCatalog=()=>X.items.map(i=>({item_id:i.item_id,category:i.item_category,description:i.item_description,uom:i.uom,sizes:sizesOf(i.item_id)}));
+const linkState=c=>c.status==='Open'&&Date.now()>Date.parse(c.expires_at)?'Expired':c.status;
+let readerP=null; // the Excel reader (48 KB) is only downloaded the first time someone uploads a file
+const loadReader=()=>readerP||=new Promise((ok,no)=>{const s=document.createElement('script');s.src='/vendor/read-excel-file.min.js';s.onload=()=>ok(window.readXlsxFile);s.onerror=()=>{readerP=null;no(Error('Could not load the Excel reader. Check your connection and try again.'))};document.head.appendChild(s)});
+async function readStockFile(file){
+  if(file.size>5e6)throw Error('That file is larger than 5 MB.');
+  if(/\.csv$/i.test(file.name))return [{sheet:file.name,data:StockImport.parseCSV(await file.text())}];
+  if(/\.xls$/i.test(file.name))throw Error('Old .xls files can\'t be read. Open it in Excel, choose Save As → Excel Workbook (.xlsx), then upload that.');
+  const read=await loadReader();
+  try{return await read(file)}catch(e){throw Error('This file could not be read as an Excel workbook (.xlsx or .csv).')}
+}
+function startReview(sheets,file,pick){
+  const parsed=sheets.map(s=>({name:s.sheet,res:StockImport.parse(s.data,scCatalog())}));
+  const i=pick??parsed.findIndex(p=>!p.res.error&&p.res.lines.length);
+  if(i<0||parsed[i].res.error||!parsed[i].res.lines.length){toast(parsed[i<0?0:i]?.res.error||'No stock lines were found in this file.',true);return}
+  S.sc.review={file,raw:sheets,sheets:parsed.map(p=>({name:p.name,ok:!p.res.error&&p.res.lines.length>0})),sheetIdx:i,mode:S.sc.review?.mode||'count',blanksZero:false,filter:'all',countId:null,
+    source:file+(sheets.length>1?` · ${parsed[i].name}`:''),lines:parsed[i].res.lines.map(l=>({...l,include:!l.blank,flags:l.problems.slice()}))};
+  S.tab='Stock count';render();scrollTo(0,0);
+}
+function reviewLink(c){
+  let rows;try{rows=JSON.parse(c.lines_json)}catch{toast('This count could not be read.',true);return}
+  S.sc.review={file:null,link:c,sheets:[],mode:c.mode,blanksZero:false,filter:'all',countId:c.count_id,source:'counting link',
+    lines:rows.map(([item_id,size,qty,defective])=>({row:'',source:'',sizeText:'',item_id,size,qty,defective,include:true,blank:false,flags:[],notes:[]}))};
+  render();scrollTo(0,0);
+}
+function scEval(l,rv){
+  const r=l.item_id&&l.size?invRow(l.item_id,l.size):null,cur=r?r.qty_on_hand:0,curDef=r?(r.qty_defective||0):0;
+  const qty=l.qty==null&&l.blank&&rv.blanksZero&&rv.mode==='count'?0:l.qty,def=l.defective;
+  const after=rv.mode==='count'?(qty??cur):cur+(qty||0),afterDef=rv.mode==='count'?(def??curDef):curDef+(def||0);
+  const issues=[...l.flags];
+  if(!issues.length){if(!l.item_id)issues.push('Pick the item');else if(!r)issues.push('Pick the size');else if(qty==null&&def==null)issues.push('No figures — enter a count or untick')}
+  const warn=[...l.notes,StockImport.unusual(cur,qty)].filter(Boolean);
+  return {cur,curDef,qty,def,after,afterDef,delta:after-cur,defDelta:afterDef-curDef,issues,warn};
+}
+function viewStockCount(){
+  const rv=S.sc.review;
+  $('#view').innerHTML=rv?reviewHtml(rv):scHomeHtml();
+  rv?bindReview(rv):bindScHome();
+}
+function scHomeHtml(){
+  const links=(S.data.Stock_Counts||[]).slice().reverse().slice(0,20),fresh=S.sc.newLink&&links.find(c=>c.count_id===S.sc.newLink);
+  const stateBadge=c=>{const st=linkState(c);return st==='Submitted'?bdg('Ready to review','info'):st==='Open'?bdg('Waiting for counts','warn'):st==='Applied'?bdg('Applied'):bdg(st,'mute')};
+  return `<div class="page-head"><div><h1>Stock count</h1><p class="muted">Upload a stock sheet, or send a counting link to whoever is in the store. You review every line before stock changes.</p></div>${liveBar()}</div>
+  <div class="grid g-2">
+  <section class="card"><h2>Upload a stock sheet</h2>
+    <label class="drop" id="drop"><input type="file" id="scFile" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"><b>Choose an Excel file</b>or drop it here · .xlsx or .csv</label>
+    <p class="muted small" style="margin-top:.7rem">Works with the <b>PPE stock register</b> as you keep it today (merged item cells, TOTAL rows and all), with the template below, or with any sheet that has Item, Size and Quantity columns. Items and sizes are matched automatically; anything unclear is flagged for you.</p>
+    <div class="actions"><button class="btn ghost sm" data-act="sctemplate" data-fill="0">⭳ Blank template</button><button class="btn ghost sm" data-act="sctemplate" data-fill="1">⭳ Current stock as a sheet</button></div></section>
+  <section class="card"><h2>Counting link</h2><p class="muted small">Anyone with the link can count from their phone — no account needed. They see items and sizes, not current stock (a blind count). The link works once and expires.</p>
+    <form id="linkForm" class="row" style="margin-top:.6rem"><label>What is being counted? <input id="lnote" maxlength="80" placeholder="e.g. Main store · October count"></label>
+    <label style="max-width:150px">Type<select id="lmode"><option value="count">Stock count</option><option value="delivery">Delivery received</option></select></label>
+    <label style="max-width:120px">Valid for<select id="lhours">${LINK_HOURS.map(([h,t])=>`<option value="${h}" ${h===48?'selected':''}>${t}</option>`).join('')}</select></label><button class="btn">Create link</button></form>
+    ${fresh&&linkState(fresh)==='Open'?`<div class="linkbox"><code>${esc(countUrl(fresh.token))}</code><button class="btn sm" data-act="sccopy" data-id="${esc(fresh.count_id)}">Copy</button><a class="btn soft sm" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(`Please count the PPE stock${fresh.note?` (${fresh.note})`:''} here: ${countUrl(fresh.token)}`)}">WhatsApp</a></div>`:''}
+  </section></div>
+  <section class="card"><h2>Counting links</h2>${table(['Created','For','Type','Status','',''],links.map(c=>{const st=linkState(c);
+    return [`${esc(day(c.created_at))}<div class="muted small">by ${esc(c.created_by)}</div>`,esc(c.note||'—'),esc(MODE_TXT[c.mode]||c.mode),stateBadge(c),
+      st==='Submitted'?`<span class="small">${esc(c.counter_name)} · ${esc(String(c.submitted_at).slice(0,16).replace('T',' '))}</span>`:st==='Open'?`<span class="muted small">until ${esc(String(c.expires_at).slice(0,16).replace('T',' '))}</span>`:st==='Applied'?`<span class="muted small">by ${esc(c.applied_by)}</span>`:'',
+      `<span class="nowrap">${st==='Submitted'?`<button class="btn sm" data-act="screview" data-id="${esc(c.count_id)}">Review</button> `:''}${st==='Open'?`<button class="btn ghost sm" data-act="sccopy" data-id="${esc(c.count_id)}">Copy link</button> `:''}${st==='Open'||st==='Submitted'?`<button class="btn ghost danger sm" data-act="sccancel" data-id="${esc(c.count_id)}">${st==='Open'?'Cancel':'Discard'}</button>`:''}</span>`]}),'No counting links yet.')}</section>`;
+}
+function bindScHome(){
+  const inp=$('#scFile'),drop=$('#drop');
+  const take=async f=>{if(!f)return;drop.classList.add('over');try{startReview(await readStockFile(f),f.name)}catch(e){toast(e.message,true)}finally{drop.classList.remove('over');inp.value=''}};
+  inp.onchange=()=>take(inp.files[0]);
+  drop.ondragover=e=>{e.preventDefault();drop.classList.add('over')};drop.ondragleave=()=>drop.classList.remove('over');
+  drop.ondrop=e=>{e.preventDefault();take(e.dataTransfer.files[0])};
+  $('#linkForm').onsubmit=async e=>{e.preventDefault();const r=await run('createCountLink',$('#lnote').value,Number($('#lhours').value),$('#lmode').value);
+    if(r&&r.token){S.sc.newLink=r.count_id;keepScroll(render);try{await navigator.clipboard.writeText(countUrl(r.token));toast('Link created and copied — share it with the person counting.')}catch{toast('Link created — copy it below and share it.')}}};
+}
+function reviewHtml(rv){
+  const ev=rv.lines.map(l=>scEval(l,rv)),dup=new Map();
+  rv.lines.forEach(l=>{if(l.include&&l.item_id&&l.size){const k=l.item_id+'|'+l.size;dup.set(k,(dup.get(k)||0)+1)}});
+  const inc=rv.lines.map((l,i)=>i).filter(i=>rv.lines[i].include),bad=inc.filter(i=>ev[i].issues.length),ready=inc.filter(i=>!ev[i].issues.length);
+  const changing=ready.filter(i=>ev[i].delta||ev[i].defDelta),net=ready.reduce((a,i)=>a+ev[i].delta,0),blanks=rv.lines.filter(l=>l.blank).length;
+  const touched=new Set(ready.map(i=>rv.lines[i].item_id+'|'+rv.lines[i].size)),untouched=S.data.Inventory.filter(r=>X.item.get(r.item_id)?.active&&!touched.has(r.item_id+'|'+r.size)).length;
+  const show=i=>({all:true,attn:rv.lines[i].include&&(ev[i].issues.length||ev[i].warn.length),chg:rv.lines[i].include&&(ev[i].delta||ev[i].defDelta),off:!rv.lines[i].include}[rv.filter]);
+  const signed=n=>n>0?`+${num(n)}`:n<0?`−${num(-n)}`:'0';
+  const title=rv.link?`Count by ${esc(rv.link.counter_name)}${rv.link.note?` · ${esc(rv.link.note)}`:''}`:esc(rv.file);
+  const row=(l,i)=>{const e=ev[i],st=!l.include?'off':e.issues.length?'bad':e.warn.length?'warn':'',sizes=l.item_id?sizesOf(l.item_id):[];
+    const d=dup.get(l.item_id+'|'+l.size)>1&&l.include?'<div class="sc-msg warn">Also on another row — figures will be added together</div>':'';
+    return `<tr class="${st}"><td><input type="checkbox" data-sc="inc" data-i="${i}" ${l.include?'checked':''} aria-label="Include this line"></td>
+    <td>${l.row?`<b class="small">Row ${l.row}</b>`:''}<div class="sc-src">${esc(l.source.split('\n')[0])}${l.sizeText?` · ${esc(l.sizeText)}`:''}</div></td>
+    <td><select id="sc-i${i}" data-sc="item" data-i="${i}"><option value="">Pick item…</option>${X.items.map(x=>`<option value="${esc(x.item_id)}" ${x.item_id===l.item_id?'selected':''}>${esc(label(x.item_id))}</option>`).join('')}</select></td>
+    <td><select id="sc-s${i}" data-sc="size" data-i="${i}" style="min-width:110px"><option value="">Size…</option>${sizes.map(z=>`<option ${z===l.size?'selected':''}>${esc(z)}</option>`).join('')}</select></td>
+    <td class="right">${l.item_id&&l.size?`${num(e.cur)}${e.curDef?`<div class="muted small">${num(e.curDef)} defective</div>`:''}`:'—'}</td>
+    <td><input class="qty" id="sc-q${i}" data-sc="qty" data-i="${i}" type="number" min="0" step="1" inputmode="numeric" value="${l.qty??''}" placeholder="${l.blank&&rv.blanksZero&&rv.mode==='count'?'0':'—'}" aria-label="Available"></td>
+    <td><input class="qty" id="sc-d${i}" data-sc="def" data-i="${i}" type="number" min="0" step="1" inputmode="numeric" value="${l.defective??''}" placeholder="—" aria-label="Defective"></td>
+    <td>${l.item_id&&l.size?`<b>${num(e.after)}</b> <span class="badge ${e.delta>0?'':e.delta<0?'bad':'mute'}">${e.delta?signed(e.delta):'no change'}</span>${e.defDelta?`<div class="muted small">defective ${num(e.curDef)} → ${num(e.afterDef)}</div>`:''}`:'—'}</td>
+    <td>${!l.include?bdg('Skipped','mute'):e.issues.length?bdg('Fix','bad'):e.warn.length?bdg('Check','warn'):bdg('OK')}
+      ${l.include?e.issues.map(m=>`<div class="sc-msg bad">${esc(m)}</div>`).join('')+e.warn.map(m=>`<div class="sc-msg warn">${esc(m)}</div>`).join('')+d:''}
+      ${l.include&&(l.flags.length||l.notes.length)&&l.item_id&&l.size?`<button class="btn ghost sm" style="margin-top:.3rem" data-sc="ok" data-i="${i}">Looks right</button>`:''}</td></tr>`};
+  const shown=rv.lines.map((l,i)=>i).filter(show);
+  return `<div class="page-head"><div><h1>Review: ${title}</h1><p class="muted">Check the matches, fix anything flagged, then apply. Nothing changes until you press Apply.</p></div><div><button class="btn ghost" data-act="scclose">← Back</button></div></div>
+  <section class="card"><div class="row" style="align-items:center">
+    <div class="chips">${['count','delivery'].map(m=>`<button class="chip ${rv.mode===m?'on':''}" data-sc="mode" data-m="${m}">${m==='count'?'Stock count — set stock to these figures':'Delivery — add these to stock'}</button>`).join('')}</div>
+    ${rv.sheets.length>1?`<label style="max-width:240px;min-width:180px">Sheet<select data-sc="sheet">${rv.sheets.map((s,k)=>`<option value="${k}" ${k===rv.sheetIdx?'selected':''} ${s.ok?'':'disabled'}>${esc(s.name)}${s.ok?'':' (no stock lines)'}</option>`).join('')}</select></label>`:''}
+    ${blanks&&rv.mode==='count'?`<label class="check"><input type="checkbox" data-sc="blanks" ${rv.blanksZero?'checked':''}> Treat ${blanks} empty cell${blanks===1?'':'s'} as 0 (none in stock)</label>`:''}</div>
+    <div class="grid g-tiles" style="margin-top:.9rem">
+      <div class="tile"><div class="k">Ready to apply</div><div class="v">${ready.length}</div><div class="s">${changing.length} will change · ${ready.length-changing.length} confirmed unchanged</div></div>
+      <div class="tile ${bad.length?'bad':''}"><div class="k">Need fixing</div><div class="v">${bad.length}</div><div class="s">fix or untick before applying</div></div>
+      <div class="tile info"><div class="k">Net change</div><div class="v">${signed(net)}</div><div class="s">units across all lines</div></div>
+      <div class="tile"><div class="k">Not in this ${rv.link?'count':'file'}</div><div class="v">${untouched}</div><div class="s">sizes left exactly as they are</div></div></div>
+    <div class="chips" style="margin:1rem 0 .4rem">${[['all','All lines',rv.lines.length],['attn','Needs attention',inc.filter(i=>ev[i].issues.length||ev[i].warn.length).length],['chg','Changes',changing.length],['off','Skipped',rv.lines.length-inc.length]].map(([k,t,n])=>`<button class="chip ${rv.filter===k?'on':''}" data-sc="filter" data-f="${k}">${t} · ${n}</button>`).join('')}</div>
+    <div class="scroll"><table class="sc-table"><thead><tr><th></th><th>From ${rv.link?'count':'file'}</th><th>PPE item</th><th>Size</th><th class="right">Now</th><th>Available</th><th>Defective</th><th>After</th><th>Status</th></tr></thead>
+    <tbody>${shown.map(i=>row(rv.lines[i],i)).join('')||`<tr><td colspan="9" class="empty">No lines in this view.</td></tr>`}</tbody></table></div>
+    <div class="actions"><button class="btn" data-sc="apply" ${ready.length&&!bad.length?'':'disabled'}>Apply ${ready.length} line${ready.length===1?'':'s'} as ${rv.mode==='count'?'stock count':'delivery'}</button><button class="btn ghost" data-act="scclose">Cancel</button>
+    ${bad.length?`<span class="muted small" style="align-self:center">${bad.length} line${bad.length===1?' needs':'s need'} fixing or unticking first.</span>`:''}</div></section>`;
+}
+function bindReview(rv){
+  const v=$('#view'),L=i=>rv.lines[Number(i)];
+  const again=()=>{const id=document.activeElement?.id;keepScroll(viewStockCount);if(id&&document.getElementById(id))document.getElementById(id).focus()};
+  const fig=x=>x.value===''?null:Math.max(0,Math.floor(Number(x.value)));
+  v.onchange=e=>{const t=e.target,k=t.dataset.sc,l=L(t.dataset.i);if(!k)return;
+    if(k==='inc')l.include=t.checked;
+    if(k==='item'){l.item_id=t.value||null;const sz=l.item_id?sizesOf(l.item_id):[];if(!sz.includes(l.size))l.size=sz.length===1?sz[0]:null;l.flags=l.flags.filter(f=>!/item|size/i.test(f));l.notes=[]}
+    if(k==='size'){l.size=t.value||null;l.flags=l.flags.filter(f=>!/size/i.test(f));l.notes=[]}
+    if(k==='qty'||k==='def'){l[k==='qty'?'qty':'defective']=fig(t);l.flags=l.flags.filter(f=>/item|size/i.test(f));if(l.qty!=null||l.defective!=null){l.blank=false;l.include=true}}
+    if(k==='blanks'){rv.blanksZero=t.checked;rv.lines.forEach(x=>{if(x.blank&&x.qty==null&&x.defective==null)x.include=t.checked})}
+    if(k==='sheet'){startReview(rv.raw,rv.file,Number(t.value));return}
+    again()};
+  v.onclick=async e=>{const b=e.target.closest('[data-sc]');if(!b||b.tagName==='INPUT'||b.tagName==='SELECT')return;const k=b.dataset.sc;
+    if(k==='mode'){rv.mode=b.dataset.m;again()}
+    if(k==='filter'){rv.filter=b.dataset.f;again()}
+    if(k==='ok'){const l=L(b.dataset.i);l.flags=[];l.notes=[];again()}
+    if(k==='apply'){
+      const ev=rv.lines.map(l=>scEval(l,rv)),use=rv.lines.map((l,i)=>[l,ev[i]]).filter(([l,e])=>l.include&&!e.issues.length),m=new Map();
+      use.forEach(([l,e])=>{const key=l.item_id+'|'+l.size,o=m.get(key)||{item_id:l.item_id,size:l.size,qty:null,defective:null};
+        if(e.qty!=null)o.qty=(o.qty||0)+e.qty;if(e.def!=null)o.defective=(o.defective||0)+e.def;m.set(key,o)});
+      const lines=[...m.values()],chg=use.filter(([,e])=>e.delta||e.defDelta).length;
+      if(!confirm(rv.mode==='count'?`Apply this stock count?\n\n${lines.length} size(s) will be set to the counted figures (${chg} change). Sizes not in this ${rv.link?'count':'file'} stay as they are.`:`Add this delivery to stock?\n\n${lines.length} size(s) will be increased by the quantities shown.`))return;
+      const r=await run('applyStockCount',rv.mode,lines,rv.source,rv.countId);
+      if(r&&r!==true){S.sc.review=null;keepScroll(render);toast(`Stock updated — ${r.changed} size${r.changed===1?'':'s'} changed, net ${r.net>0?'+':''}${r.net} units. Logged in stock movements.`)}}};
+}
+function downloadTemplate(fill){
+  const head=['Item code','Item','Size','Unit','Available','Defective'],safe=z=>{z=String(z??'');return /^[=+\-@]/.test(z)?"'"+z:z};
+  const rows=X.items.flatMap(i=>sizesOf(i.item_id).map(z=>{const r=invRow(i.item_id,z);return [i.item_id,label(i.item_id),z,i.uom,fill?r.qty_on_hand:'',fill?(r.qty_defective||0):'']}));
+  const csv=[head,...rows].map(r=>r.map(z=>'"'+safe(z).replace(/"/g,'""')+'"').join(',')).join('\r\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['﻿',csv],{type:'text/csv;charset=utf-8'}));a.download=fill?`ARAHAS-PPE-stock-${new Date().toISOString().slice(0,10)}.csv`:'ARAHAS-PPE-stock-count-template.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000);
 }
 
 /* ───────── COLLECTIONS (store keeper) ───────── */
@@ -491,7 +648,7 @@ document.addEventListener('click',async e=>{
   const tab=closest(e,'[data-tab]');if(tab&&!closest(e,'[data-act]')){S.tab=tab.dataset.tab;render();return}
   const a=closest(e,'[data-act]');if(!a)return;const act=a.dataset.act,iid=a.dataset.iid;
   const A={
-    signout:()=>signOut(),refresh:()=>refresh(true),goto:()=>{S.tab=a.dataset.tab;render()},
+    signout:()=>signOut(),refresh:()=>refresh(true),goto:()=>{e.preventDefault();S.tab=a.dataset.tab;render()},
     installapp:()=>installApp(),togglepush:()=>togglePush(),
     filter:()=>{S.dashFilter=a.dataset.f;viewDashboard()},
     closedlg:()=>{S.dlg=null;$('#dlg').close()},
@@ -508,7 +665,12 @@ document.addEventListener('click',async e=>{
       S.dlg.addOpen=true;await run('addPpeToEmployee',iid,items,$('#addReason').value)},
     delrule:()=>confirm('Delete this rule?')&&run('deleteRule',a.dataset.id),
     adjust:()=>{$('#si').value=a.dataset.item;$('#si').onchange();$('#ss').value=a.dataset.size;$('#ss').onchange();$('#adj').scrollIntoView({behavior:'smooth'});$('#sd').focus()},
-    pickall:()=>$$('input[name=pick]:not(:disabled)',a.closest('form')).forEach(c=>c.checked=true)
+    pickall:()=>$$('input[name=pick]:not(:disabled)',a.closest('form')).forEach(c=>c.checked=true),
+    sctemplate:()=>downloadTemplate(a.dataset.fill==='1'),
+    scclose:()=>{if(S.sc.review&&!confirm('Leave this review? Nothing has been applied.'))return;S.sc.review=null;render()},
+    screview:()=>{const c=S.data.Stock_Counts.find(x=>x.count_id===a.dataset.id);if(c)reviewLink(c)},
+    sccopy:async()=>{const c=S.data.Stock_Counts.find(x=>x.count_id===a.dataset.id);if(!c)return;try{await navigator.clipboard.writeText(countUrl(c.token));toast('Link copied.')}catch{prompt('Copy this link:',countUrl(c.token))}},
+    sccancel:()=>confirm('Cancel this counting link? Anyone holding it will no longer be able to use it, and any submitted counts are discarded.')&&run('cancelCountLink',a.dataset.id)
   };
   if(A[act])A[act]();
 });

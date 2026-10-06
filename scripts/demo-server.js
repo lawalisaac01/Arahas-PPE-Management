@@ -32,7 +32,7 @@ const fake = { readSnapshot: async () => clone(db), writeTables: async m => Obje
 const load = Module._load;
 Module._load = function (req, ...a) { if (/lib[\\/]sheets$/.test(req)) return fake; if (req === 'bcryptjs') return { compare: async (p) => p === 'demo', hash: async () => 'x' }; return load.call(this, req, ...a); };
 const { handle } = require('../api/rpc');
-const root = path.join(__dirname, '..'), types = { '.html': 'text/html', '.png': 'image/png' };
+const root = path.join(__dirname, '..'), types = { '.html': 'text/html', '.png': 'image/png', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json' };
 http.createServer((req, res) => {
   if (req.url.startsWith('/api/rpc')) {
     let b = ''; req.on('data', c => (b += c)); req.on('end', async () => {
@@ -40,7 +40,8 @@ http.createServer((req, res) => {
       res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(out));
     }); return;
   }
-  const f = path.join(root, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
+  let f = path.join(root, req.url === '/' ? 'index.html' : req.url.split('?')[0]);
+  if (!path.extname(f) && fs.existsSync(f + '.html')) f += '.html'; // like Vercel's cleanUrls: /count -> count.html
   if (!f.startsWith(root) || !fs.existsSync(f)) { res.statusCode = 404; return res.end('Not found'); }
   res.setHeader('Content-Type', types[path.extname(f)] || 'application/octet-stream'); res.end(fs.readFileSync(f));
 }).listen(process.env.PORT || 3000, () => console.log('Demo running on http://localhost:' + (process.env.PORT || 3000)));
