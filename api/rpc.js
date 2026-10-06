@@ -389,11 +389,153 @@ async function deletePushSubscription(session, args, snap) {
   return { result: { ok: true } };
 }
 
+// ---------- Stock counts: Excel upload + one-time counting links ----------
+// Both feed the same applyStockCount. 'count' REPLACES on-hand/defective with the
+// counted figures (a blank figure = not counted, left as is); 'delivery' ADDS them.
+const COUNT_MODES = ['count', 'delivery'];
+const MAX_COUNT_QTY = 1000000;
+const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL', 'XXXXL'];
+function sizeSort(a, b) {
+  const nx = parseFloat(a), ny = parseFloat(b);
+  if (!isNaN(nx) && !isNaN(ny)) return nx - ny;
+  const ix = SIZE_ORDER.indexOf(String(a).toUpperCase()), iy = SIZE_ORDER.indexOf(String(b).toUpperCase());
+  if (ix > -1 && iy > -1) return ix - iy;
+  return String(a).localeCompare(String(b));
+}
+function countFigure(v, what) {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  if (!Number.isInteger(n) || n < 0 || n > MAX_COUNT_QTY) throw new Error(`${what} must be a whole number from 0 to ${MAX_COUNT_QTY.toLocaleString()}.`);
+  return n;
+}
+/** Validate submitted count lines against the catalogue and the sizes set up in Inventory. */
+function cleanCountLines(snap, linesIn) {
+  if (!Array.isArray(linesIn) || !linesIn.length) throw new Error('There are no counted lines to save.');
+  if (linesIn.length > 1000) throw new Error('Too many lines in one count (max 1000).');
+  const seen = new Set();
+  return linesIn.map(l => {
+    const item = activeItem(snap, l && l.item_id);
+    const size = String(l.size ?? '');
+    if (!snap.Inventory.some(r => r.item_id === item.item_id && r.size === size)) throw new Error(`Size "${size}" is not set up for ${item.item_category}.`);
+    const key = item.item_id + '|' + size;
+    if (seen.has(key)) throw new Error(`${item.item_category} size ${size} appears more than once.`);
+    seen.add(key);
+    const qty = countFigure(l.qty, `${item.item_category} ${size}: available`);
+    const defective = countFigure(l.defective, `${item.item_category} ${size}: defective`);
+    if (qty === null && defective === null) throw new Error(`${item.item_category} size ${size} has no figures.`);
+    return { item_id: item.item_id, size, qty, defective };
+  });
+}
+function applyCountLines(snap, mode, lines, source, actor) {
+  const ts = now();
+  let changed = 0, net = 0;
+  lines.forEach(l => {
+    const row = snap.Inventory.find(r => r.item_id === l.item_id && r.size === l.size);
+    const oldQty = Number(row.qty_on_hand || 0), oldDef = Number(row.qty_defective || 0);
+    const newQty = mode === 'count' ? (l.qty ?? oldQty) : oldQty + (l.qty || 0);
+    const newDef = mode === 'count' ? (l.defective ?? oldDef) : oldDef + (l.defective || 0);
+    row.qty_on_hand = newQty; row.qty_defective = newDef; row.last_updated = ts;
+    const delta = newQty - oldQty;
+    if (delta || newDef !== oldDef) {
+      changed++; net += delta;
+      snap.Stock_Movements.push({
+        movement_id: uid('mv'), item_id: l.item_id, size: l.size, delta, actor, timestamp: ts,
+        reason: `${mode === 'count' ? 'Stock count' : 'Delivery'} — ${source}${newDef !== oldDef ? ` · defective ${oldDef}→${newDef}` : ''}`
+      });
+    }
+  });
+  return { lines: lines.length, changed, net };
+}
+
+async function applyStockCount(session, args, snap) {
+  requireRole(session, 'Admin', 'Store Keeper');
+  const [mode, linesIn, sourceIn, countId] = args;
+  if (!COUNT_MODES.includes(mode)) throw new Error('Choose "Stock count" or "Delivery".');
+  const lines = cleanCountLines(snap, linesIn);
+  let source = String(sourceIn || '').replace(/\s+/g, ' ').trim().slice(0, 120) || 'upload';
+  snap.Stock_Counts = snap.Stock_Counts || [];
+  let link = null;
+  if (countId) {
+    link = snap.Stock_Counts.find(c => c.count_id === countId);
+    if (!link) throw new Error('Counting link not found.');
+    if (link.status !== 'Submitted') throw new Error(link.status === 'Applied' ? 'This count has already been applied.' : 'This count has not been submitted yet.');
+    source = `counting link${link.note ? ` "${link.note}"` : ''} by ${link.counter_name}`;
+  }
+  const summary = applyCountLines(snap, mode, lines, source, session.username);
+  const tables = { Inventory: snap.Inventory, Stock_Movements: snap.Stock_Movements };
+  if (link) { link.status = 'Applied'; link.applied_by = session.username; link.applied_at = now(); tables.Stock_Counts = snap.Stock_Counts; }
+  await writeTables(tables);
+  return { result: summary };
+}
+
+async function createCountLink(session, args, snap) {
+  requireRole(session, 'Admin', 'Store Keeper');
+  const [noteIn, hoursIn, mode = 'count'] = args;
+  if (!COUNT_MODES.includes(mode)) throw new Error('Choose "Stock count" or "Delivery".');
+  const hours = Number(hoursIn ?? 48);
+  if (!Number.isInteger(hours) || hours < 1 || hours > 336) throw new Error('A link can stay open for 1 hour to 14 days.');
+  const row = {
+    count_id: uid('cnt'), token: crypto.randomBytes(18).toString('base64url'), status: 'Open', mode,
+    note: String(noteIn || '').replace(/\s+/g, ' ').trim().slice(0, 80), created_by: session.username, created_at: now(),
+    expires_at: new Date(Date.now() + hours * 3600e3).toISOString(), counter_name: '', submitted_at: '', lines_json: '', applied_by: '', applied_at: ''
+  };
+  snap.Stock_Counts = [...(snap.Stock_Counts || []), row];
+  await writeTables({ Stock_Counts: snap.Stock_Counts });
+  return { result: { count_id: row.count_id, token: row.token } };
+}
+
+async function cancelCountLink(session, args, snap) {
+  requireRole(session, 'Admin', 'Store Keeper');
+  const link = (snap.Stock_Counts || []).find(c => c.count_id === args[0]);
+  if (!link) throw new Error('Counting link not found.');
+  if (!['Open', 'Submitted'].includes(link.status)) throw new Error(`This link is already ${link.status.toLowerCase()}.`);
+  link.status = 'Cancelled';
+  await writeTables({ Stock_Counts: snap.Stock_Counts });
+  return { result: { ok: true } };
+}
+
+// ---- public (no sign-in): the person holding a counting link ----
+function openLink(snap, token) {
+  const t = Buffer.from(String(token || ''));
+  const link = (snap.Stock_Counts || []).find(c => { const b = Buffer.from(c.token || ''); return b.length === t.length && t.length > 0 && crypto.timingSafeEqual(b, t); });
+  if (!link) throw new Error('This counting link is not valid. Ask the store keeper for a new one.');
+  if (link.status === 'Cancelled') throw new Error('This counting link was cancelled. Ask the store keeper for a new one.');
+  if (link.status !== 'Open') throw new Error('Counts for this link have already been submitted — thank you. Ask the store keeper if you need a new link.');
+  if (Date.now() > Date.parse(link.expires_at)) throw new Error('This counting link has expired. Ask the store keeper for a new one.');
+  return link;
+}
+async function countLinkOpen(args, snap) {
+  const link = openLink(snap, args[0]);
+  // Blind count: the counter sees items and sizes, never the current stock figures.
+  const items = snap.Item_Catalog.filter(i => i.active).map(i => ({
+    item_id: i.item_id, category: i.item_category, description: i.item_description, uom: i.uom,
+    sizes: snap.Inventory.filter(r => r.item_id === i.item_id).map(r => r.size).sort(sizeSort)
+  })).filter(i => i.sizes.length);
+  return { result: { count_id: link.count_id, note: link.note, mode: link.mode, expires_at: link.expires_at, items } };
+}
+async function countLinkSubmit(args, snap) {
+  const [token, nameIn, linesIn] = args;
+  const link = openLink(snap, token);
+  const name = String(nameIn || '').replace(/\s+/g, ' ').trim();
+  if (name.length < 2 || name.length > 60) throw new Error('Enter your name (2–60 characters).');
+  const lines = cleanCountLines(snap, linesIn);
+  const json = JSON.stringify(lines.map(l => [l.item_id, l.size, l.qty, l.defective]));
+  if (json.length > 45000) throw new Error('This count is too large to submit in one go.');
+  Object.assign(link, { status: 'Submitted', counter_name: name, submitted_at: now(), lines_json: json });
+  await writeTables({ Stock_Counts: snap.Stock_Counts });
+  const note = { title: 'Stock count submitted', body: `${name} counted ${lines.length} line${lines.length === 1 ? '' : 's'}${link.note ? ` — ${link.note}` : ''}. Review it under Stock count.`, tag: 'stock-count', url: '/' };
+  await pushAndPersist(snap, 'Store Keeper', note);
+  await pushAndPersist(snap, 'Admin', note);
+  return { result: { ok: true, lines: lines.length } };
+}
+const PUBLIC_HANDLERS = { countLinkOpen, countLinkSubmit };
+
 const HANDLERS = {
   addEmployee, editEmployee, resetDraft, setDraftItem, removeDraftItem, approveEmployee, addPpeToEmployee,
   setRule, deleteRule, adjustStock, issueBatch, requestReplacement, decideReplacement,
   deleteEmployee, removeIssuanceLine, undoCollection,
-  savePushSubscription, deletePushSubscription
+  savePushSubscription, deletePushSubscription,
+  applyStockCount, createCountLink, cancelCountLink
 };
 
 async function handle(body) {
@@ -404,6 +546,10 @@ async function handle(body) {
 
   if (fn === 'signIn') { const { result, snap } = await signIn(args); return done(result, snap); }
   if (fn === 'signOut') return { ok: true, result: { ok: true }, serverMs: Date.now() - started };
+  if (PUBLIC_HANDLERS[fn]) { // counting-link page: no session, and never returns the snapshot
+    const { result } = await PUBLIC_HANDLERS[fn](args, await readSnapshot());
+    return { ok: true, result, serverMs: Date.now() - started };
+  }
 
   const [token, ...rest] = args; // every other fn is (token, ...rest)
   const session = verify(token);
