@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#14181c">
+<meta name="robots" content="noindex">
+<link rel="icon" href="/favicon.png">
+<title>ARAHAS | PPE stock count</title>
+<style>
+:root{color-scheme:dark;--bg:#14181c;--bg-soft:#191f24;--card:#1d252b;--card-head:#232d34;--border:#303b42;--border-soft:#263039;--text:#edf1f3;--muted:#8a9aa4;--muted-dim:#5f6d76;
+--yellow:#ffcc33;--yellow-dim:#4a4020;--orange:#ff8a4c;--ok:#35c98a;--ok-dim:#1c3a2e;--danger:#ff6b6b;--input:#12171b;--radius:10px}
+*{box-sizing:border-box;margin:0;padding:0}html{scroll-padding-top:7rem}
+body{font-family:"Segoe UI",system-ui,-apple-system,Roboto,sans-serif;background:radial-gradient(1100px 480px at 90% -10%,rgba(255,204,51,.05),transparent 60%),var(--bg);color:var(--text);line-height:1.45;min-height:100dvh;padding-bottom:7rem}
+button,input{font:inherit;color:inherit}
+header{position:sticky;top:0;z-index:60;background:rgba(20,24,28,.94);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.top{padding:.75rem 1rem .55rem;display:flex;gap:.6rem;align-items:center;justify-content:space-between;max-width:980px;margin:0 auto}
+.brand{display:flex;align-items:center;gap:.6rem;min-width:0}.brand img{width:44px;height:32px;object-fit:contain;background:#fff;border-radius:7px;padding:2px;flex:none}
+h1{font-size:1rem;font-weight:700}h1 span{display:block;font-size:.7rem;font-weight:500;color:var(--muted);margin-top:.1rem}
+.net{font-size:.75rem;color:var(--muted);display:flex;gap:.4rem;align-items:center;white-space:nowrap}.dot{width:.5rem;height:.5rem;border-radius:50%;background:var(--danger)}.dot.on{background:var(--ok)}
+.quicknav{display:flex;gap:.4rem;overflow-x:auto;padding:0 1rem .65rem;max-width:980px;margin:0 auto;scrollbar-width:none}.quicknav::-webkit-scrollbar{display:none}
+.navchip{flex:none;font-size:.74rem;font-weight:600;color:var(--muted);background:var(--bg-soft);border:1px solid var(--border-soft);padding:.35rem .65rem;border-radius:999px;cursor:pointer;white-space:nowrap}
+.navchip .c{color:var(--muted-dim);font-weight:500;margin-left:.25rem}.navchip.done{border-color:rgba(53,201,138,.35);color:var(--ok)}
+main{max-width:980px;margin:0 auto;padding:1rem}
+.intro{background:var(--card);border:1px solid var(--border);border-left:4px solid var(--yellow);border-radius:12px;padding:.8rem .95rem;margin-bottom:1rem;font-size:.86rem}
+.intro b{color:var(--yellow)}.intro .muted{color:var(--muted);font-size:.78rem;margin-top:.3rem}
+.statbar{display:grid;grid-template-columns:repeat(4,1fr);gap:.6rem;margin-bottom:1rem}
+.stat{background:var(--card);border:1px solid var(--border-soft);border-radius:var(--radius);padding:.65rem .75rem}.stat .n{font-size:1.25rem;font-weight:700;line-height:1.1}
+.stat .l{font-size:.68rem;color:var(--muted);margin-top:.15rem;text-transform:uppercase;letter-spacing:.04em}.stat.a .n{color:var(--yellow)}.stat.d .n{color:var(--orange)}.stat.p .n{color:var(--ok)}
+.search{width:100%;background:var(--card);border:1px solid var(--border-soft);padding:.6rem .9rem;border-radius:999px;font-size:.85rem;margin-bottom:1rem}.search:focus{outline:none;border-color:var(--yellow)}
+details.cat{background:var(--card);border:1px solid var(--border);border-radius:14px;margin-bottom:.85rem;overflow:hidden;scroll-margin-top:7rem}
+summary{list-style:none;padding:.8rem .95rem;cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:.6rem;background:var(--card-head);border-bottom:1px solid var(--border)}
+summary::-webkit-details-marker{display:none}.ct{font-weight:700;font-size:.92rem}.badge{font-size:.7rem;font-weight:700;color:var(--muted);background:var(--bg-soft);border:1px solid var(--border-soft);padding:.25rem .55rem;border-radius:999px;flex:none}
+.badge.done{color:var(--ok);border-color:rgba(53,201,138,.3);background:var(--ok-dim)}
+.body{padding:.5rem .8rem .8rem}.item{margin:.6rem 0;padding:.7rem;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--bg-soft)}
+.it{font-size:.76rem;color:var(--muted);margin-bottom:.55rem}.it strong{color:var(--text);font-size:.88rem;display:block}
+.rows{display:grid;gap:.35rem}.row{display:grid;grid-template-columns:minmax(64px,110px) 1fr 1fr;gap:.4rem;align-items:center;font-size:.85rem}
+.row.h{font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-dim)}.row.h .a{color:var(--yellow)}.row.h .d{color:var(--orange)}
+.size{font-weight:700;text-align:center;padding:.42rem .3rem;background:var(--input);border-radius:6px;border:1px solid var(--border-soft);font-size:.78rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.size.f{border-color:var(--yellow)}
+input.n{width:100%;background:var(--input);border:1px solid var(--border-soft);padding:.5rem;border-radius:6px;font-size:1rem;text-align:center;-moz-appearance:textfield}
+input.n::-webkit-outer-spin-button,input.n::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input.n.a:focus{outline:none;border-color:var(--yellow);box-shadow:0 0 0 2px rgba(255,204,51,.2)}input.n.d:focus{outline:none;border-color:var(--orange);box-shadow:0 0 0 2px rgba(255,138,76,.2)}
+input.n.a.v{border-color:rgba(255,204,51,.5)}input.n.d.v{border-color:rgba(255,138,76,.5);color:var(--orange)}
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:70;background:rgba(20,24,28,.96);backdrop-filter:blur(10px);border-top:1px solid var(--border);padding:.7rem 1rem calc(.7rem + env(safe-area-inset-bottom))}
+.bar .in{max-width:980px;margin:0 auto;display:flex;gap:.5rem}.bar input{flex:1;min-width:0;background:var(--input);border:1px solid var(--border);border-radius:8px;padding:.65rem .8rem}
+.bar input:focus{outline:none;border-color:var(--yellow)}
+.btn{appearance:none;border:1px solid transparent;background:var(--yellow);color:#1a1400;padding:.65rem 1.1rem;border-radius:8px;font-weight:700;cursor:pointer;white-space:nowrap}
+.btn:disabled{opacity:.45;cursor:not-allowed}.btn.ghost{background:transparent;border-color:var(--border);color:var(--text)}
+.msg{max-width:520px;margin:12vh auto;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:16px;padding:2rem 1.4rem}
+.msg h2{font-size:1.2rem;margin:.6rem 0}.msg p{color:var(--muted);font-size:.9rem}.msg .big{font-size:2.4rem}
+dialog{border:1px solid var(--border);border-radius:16px;padding:1.2rem;background:var(--card);color:var(--text);width:min(94vw,460px)}dialog::backdrop{background:#000a}
+dialog h2{font-size:1.05rem;margin-bottom:.6rem}dialog p{font-size:.88rem;color:var(--muted);margin:.3rem 0}dialog .acts{display:flex;justify-content:flex-end;gap:.5rem;margin-top:1rem}
+.toast{position:fixed;bottom:5.5rem;left:50%;transform:translateX(-50%);background:#1d252b;border:1px solid var(--danger);padding:.65rem 1.1rem;border-radius:999px;font-size:.85rem;z-index:100;opacity:0;pointer-events:none;transition:opacity .25s;max-width:92vw;text-align:center}
+.toast.show{opacity:1}.toast.ok{border-color:var(--ok)}
+.empty{text-align:center;color:var(--muted-dim);font-size:.85rem;padding:2rem 0}
+@media(max-width:520px){.statbar{grid-template-columns:repeat(2,1fr)}.row{grid-template-columns:72px 1fr 1fr}}
+</style>
+</head>
+<body>
+<header><div class="top"><div class="brand"><img src="/logo.png" alt="ARAHAS"><h1>ARAHAS PPE stock count<span id="sub">Loading…</span></h1></div><div class="net"><span class="dot" id="dot"></span><span id="netTxt"></span></div></div><nav class="quicknav" id="nav"></nav></header>
+<main id="main"><div class="empty">Loading your counting sheet…</div></main>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<dialog id="dlg"></dialog>
+<script>
+"use strict";
+const token=new URLSearchParams(location.search).get('c')||'';
+const $=s=>document.querySelector(s);
+const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let sheet=null,counts={},name='',q='',key='';
+let tt;function toast(m,ok){const t=$('#toast');t.textContent=m;t.className='toast show'+(ok?' ok':'');clearTimeout(tt);tt=setTimeout(()=>t.className='toast',ok?3000:6000)}
+function net(){const on=navigator.onLine;$('#dot').className='dot'+(on?' on':'');$('#netTxt').textContent=on?'Online':'Offline — saved on this phone'}
+addEventListener('online',net);addEventListener('offline',net);net();
+// counts are kept on this device as you type, so a refresh or lost signal never loses work
+const save=()=>{try{localStorage.setItem(key,JSON.stringify({counts,name}))}catch{}};
+const load=()=>{try{const d=JSON.parse(localStorage.getItem(key)||'{}');counts=d.counts||{};name=d.name||''}catch{}};
+async function call(fn,...args){
+  let r;try{r=await fetch('/api/rpc',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fn,args}),cache:'no-store'})}
+  catch{throw Error('No connection. Your counts are saved on this phone — try again when you have signal.')}
+  const p=await r.json().catch(()=>({}));if(!p.ok)throw Error(p.error||'Something went wrong. Please try again.');return p.result;
+}
+function stop(title,text,icon){$('#nav').innerHTML='';$('#main').innerHTML=`<div class="msg"><div class="big">${icon}</div><h2>${esc(title)}</h2><p>${esc(text)}</p></div>`;const b=document.querySelector('.bar');if(b)b.remove()}
+const ICON=[[/boot/i,'🥾'],[/coverall/i,'🦺'],[/hat/i,'⛑️'],[/glove/i,'🧤'],[/ear/i,'🎧'],[/goggle/i,'🥽'],[/coat/i,'🧥'],[/umbrella/i,'☂️']];
+const icon=c=>(ICON.find(([r])=>r.test(c))||[0,'📦'])[1];
+const k=(id,size)=>id+'|'+size;
+const filled=(id,size)=>{const c=counts[k(id,size)];return c&&(c.a!==''&&c.a!=null||c.d!==''&&c.d!=null)};
+function stats(){let cells=0,done=0,a=0,d=0;sheet.items.forEach(i=>i.sizes.forEach(s=>{cells++;if(filled(i.item_id,s))done++;const c=counts[k(i.item_id,s)]||{};a+=Number(c.a)||0;d+=Number(c.d)||0}));return {cells,done,a,d}}
+function groups(){const g=new Map();sheet.items.forEach(i=>{if(!g.has(i.category))g.set(i.category,[]);g.get(i.category).push(i)});return [...g.entries()]}
+function itemTitle(i,many){return many?(i.description.split(' — ')[1]||i.description):i.category}
+const tally=its=>[its.reduce((x,i)=>x+i.sizes.filter(z=>filled(i.item_id,z)).length,0),its.reduce((x,i)=>x+i.sizes.length,0)];
+const navHtml=()=>groups().map(([c,its],n)=>{const [f,cells]=tally(its);return `<button class="navchip ${f===cells?'done':''}" data-go="g${n}">${icon(c)} ${esc(c)}<span class="c">${f}/${cells}</span></button>`}).join('');
+function render(){
+  const s=stats(),gs=groups();
+  $('#nav').innerHTML=navHtml();
+  const ql=q.toLowerCase();
+  $('#main').innerHTML=`<div class="intro"><b>${sheet.mode==='delivery'?'Delivery received':'Stock count'}</b>${sheet.note?` · ${esc(sheet.note)}`:''}<div>${sheet.mode==='delivery'?'Enter the quantity of each item that arrived.':'Count what is physically on the shelf for each size.'} Put damaged or unusable items under <b style="color:var(--orange)">Defective</b>.</div>
+    <div class="muted">Leave a box empty if you didn't count it · enter 0 if there are none · link valid until ${esc(new Date(sheet.expires_at).toLocaleString())}</div></div>
+  <div class="statbar"><div class="stat p"><div class="n">${s.cells?Math.round(s.done/s.cells*100):0}%</div><div class="l">Sizes counted</div></div><div class="stat a"><div class="n">${s.a.toLocaleString()}</div><div class="l">Total available</div></div>
+    <div class="stat d"><div class="n">${s.d.toLocaleString()}</div><div class="l">Total defective</div></div><div class="stat"><div class="n">${s.done}/${s.cells}</div><div class="l">Entries</div></div></div>
+  <input class="search" id="q" placeholder="Search an item — e.g. boot, coverall, ear plug…" value="${esc(q)}">
+  ${gs.map(([c,its],n)=>{const vis=its.filter(i=>!ql||`${c} ${i.description}`.toLowerCase().includes(ql));if(!vis.length)return '';
+    const [f,cells]=tally(its);
+    return `<details class="cat" id="g${n}" open><summary><span class="ct">${icon(c)} ${esc(c)}</span><span class="badge ${f===cells?'done':''}" data-g="${n}">${f}/${cells} counted</span></summary><div class="body">${vis.map(i=>`<div class="item"><div class="it"><strong>${esc(itemTitle(i,its.length>1))}</strong>${esc(i.description)} · ${esc(i.uom)}</div>
+      <div class="rows"><div class="row h"><div>Size</div><div class="a">Available</div><div class="d">Defective</div></div>${i.sizes.map(z=>{const c=counts[k(i.item_id,z)]||{};return `<div class="row"><div class="size ${filled(i.item_id,z)?'f':''}" title="${esc(z)}">${esc(z)}</div>
+      <input class="n a ${c.a!==''&&c.a!=null?'v':''}" type="number" inputmode="numeric" min="0" step="1" placeholder="—" data-k="${esc(k(i.item_id,z))}" data-f="a" value="${c.a??''}" aria-label="${esc(i.category)} ${esc(z)} available">
+      <input class="n d ${c.d!==''&&c.d!=null?'v':''}" type="number" inputmode="numeric" min="0" step="1" placeholder="—" data-k="${esc(k(i.item_id,z))}" data-f="d" value="${c.d??''}" aria-label="${esc(i.category)} ${esc(z)} defective"></div>`}).join('')}</div></div>`).join('')}</div></details>`}).join('')||'<div class="empty">No items match.</div>'}`;
+  const qi=$('#q');qi.oninput=()=>{q=qi.value;const p=qi.selectionStart;render();const n=$('#q');n.focus();n.setSelectionRange(p,p)};
+}
+function refreshCounters(){ // update totals without rebuilding inputs (keeps the keyboard open while typing)
+  const s=stats(),st=document.querySelectorAll('.stat .n');st[0].textContent=(s.cells?Math.round(s.done/s.cells*100):0)+'%';st[1].textContent=s.a.toLocaleString();st[2].textContent=s.d.toLocaleString();st[3].textContent=`${s.done}/${s.cells}`;
+  $('#send').disabled=!s.done;
+  $('#nav').innerHTML=navHtml();
+  groups().forEach(([,its],n)=>{const b=document.querySelector(`[data-g="${n}"]`);if(b){const [f,cells]=tally(its);b.textContent=`${f}/${cells} counted`;b.classList.toggle('done',f===cells)}});
+}
+document.addEventListener('input',e=>{const t=e.target;if(!t.dataset.k)return;let v=t.value===''?'':Math.max(0,Math.floor(Number(t.value)));if(Number.isNaN(v))v='';
+  const c=counts[t.dataset.k]||(counts[t.dataset.k]={a:'',d:''});c[t.dataset.f]=v;t.classList.toggle('v',v!=='');t.closest('.row').querySelector('.size').classList.toggle('f',filled(...t.dataset.k.split('|')));save();refreshCounters()});
+document.addEventListener('click',e=>{const g=e.target.closest('[data-go]');if(g)document.getElementById(g.dataset.go)?.scrollIntoView({behavior:'smooth',block:'start'})});
+function bar(){
+  const b=document.createElement('div');b.className='bar';b.innerHTML=`<div class="in"><input id="who" maxlength="60" placeholder="Your name" autocomplete="name" value="${esc(name)}"><button class="btn" id="send">Submit count</button></div>`;document.body.appendChild(b);
+  $('#who').oninput=e=>{name=e.target.value;save()};$('#send').onclick=review;refreshCounters();
+}
+function lines(){const out=[];sheet.items.forEach(i=>i.sizes.forEach(z=>{const c=counts[k(i.item_id,z)];if(c&&filled(i.item_id,z))out.push({item_id:i.item_id,size:z,qty:c.a===''?null:c.a,defective:c.d===''?null:c.d})}));return out}
+function review(){
+  if(name.trim().length<2){toast('Enter your name first.');$('#who').focus();return}
+  const s=stats(),ls=lines();if(!ls.length){toast('Enter at least one count first.');return}
+  const d=$('#dlg');d.innerHTML=`<h2>Submit this ${sheet.mode==='delivery'?'delivery':'count'}?</h2><p><b style="color:var(--text)">${s.done}</b> of ${s.cells} sizes filled in · <b style="color:var(--yellow)">${s.a.toLocaleString()}</b> available · <b style="color:var(--orange)">${s.d.toLocaleString()}</b> defective.</p>
+    ${s.done<s.cells?`<p>${s.cells-s.done} size${s.cells-s.done===1?' is':'s are'} empty — ${sheet.mode==='delivery'?'treated as nothing received':'they will be left as they are, not set to 0'}.</p>`:''}<p>You can't change it after submitting. The store keeper reviews it before stock is updated.</p>
+    <div class="acts"><button class="btn ghost" id="no">Keep counting</button><button class="btn" id="yes">Submit</button></div>`;
+  d.showModal();$('#no').onclick=()=>d.close();
+  $('#yes').onclick=async()=>{const y=$('#yes');y.disabled=true;y.textContent='Sending…';
+    try{await call('countLinkSubmit',token,name.trim(),ls);d.close();try{localStorage.removeItem(key)}catch{}stop('Thank you, '+name.trim().split(' ')[0]+'!',`Your ${sheet.mode==='delivery'?'delivery':'count'} was sent (${ls.length} sizes). The store keeper will review it and update the stock. You can close this page.`,'✅')}
+    catch(e){d.close();toast(e.message)}};
+}
+(async()=>{
+  if(!token)return stop('No counting link','Open the full link you were sent by the store keeper.','🔗');
+  try{sheet=await call('countLinkOpen',token)}catch(e){return stop('Link not available',e.message,'⛔')}
+  key='arahas_count_'+sheet.count_id;load();
+  $('#sub').textContent=(sheet.mode==='delivery'?'Delivery received':'Stock count')+(sheet.note?' · '+sheet.note:'');
+  render();bar();
+})();
+</script>
+</body>
+</html>

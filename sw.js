@@ -1,7 +1,7 @@
 // ARAHAS PPE — service worker. Bump CACHE on every deploy that changes a
 // cached file, so returning devices pick up the new shell instead of a
 // stale one stuck in the cache.
-const CACHE = 'arahas-ppe-shell-v1';
+const CACHE = 'arahas-ppe-shell-v2';
 const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/favicon.png'];
 
 self.addEventListener('install', (event) => {
